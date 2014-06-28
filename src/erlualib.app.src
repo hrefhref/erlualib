@@ -1,12 +1,12 @@
 {application, erlualib,
- [
-  {description, ""},
-  {vsn, "1"},
-  {registered, []},
-  {applications, [
-                  kernel,
-                  stdlib
-                 ]},
-  {mod, { erlualib, []}},
-  {env, []}
- ]}.
+    [
+        {description, ""},
+        {vsn, "1.0.0"},
+        {modules, [erlualib]},
+        {registered, []},
+        {applications, [
+            kernel,
+            stdlib
+        ]},
+        {env, []}
+    ]}.
