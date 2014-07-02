@@ -110,9 +110,13 @@ pushterm(L, Args) when is_list(Args) ->
     lua:createtable(L, length(NewArgs), 0),
     TPos = lua:gettop(L),
     Fun = fun({K, V}) ->
-            pushterm(L, K),
-            pushterm(L, V),
-            lua:settable(L, TPos)
+            case V of
+                undefined   -> ok;
+                nil         -> ok;
+                V           ->  pushterm(L, K),
+                                pushterm(L, V),
+                                lua:settable(L, TPos)
+            end
     end,
     lists:foreach(Fun, NewArgs).
 
