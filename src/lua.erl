@@ -46,14 +46,14 @@
                atom()                 | % string
                number()               | % number
                list({arg(), arg()})   | % associative table
-               tuple(arg()).            % indexed table
+               {arg()}.                 % indexed table
 -type ret() :: nil                  |
                boolean()            |
                float()              |
                integer()            |
                binary()             |
                list({ret(), ret()}) |
-               tuple(ret()).
+               {ret()}.
 -export_type([arg/0, ret/0]).
 
 
