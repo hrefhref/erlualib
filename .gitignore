@@ -6,3 +6,6 @@
 *.o
 /.eunit/
 /rebar
+c_src/*.d
+.rebar/
+.rebar3/
