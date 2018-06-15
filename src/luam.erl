@@ -14,6 +14,7 @@
 %%% | string     | string         |
 %%% | number     | number         |
 %%% | proplist   | tagged table   |
+%%% | map        | tagged table   |
 %%% | tuple      | indexed table  |
 %%% +------------+----------------+
 %%%
@@ -26,7 +27,8 @@
 %%% | light_user_data | --NA--     |
 %%% | number          | float      |
 %%% | string          | binary     |
-%%% | table           | proplist   |
+%%% | indexed table   | list       |
+%%% | tagged table    | map        |
 %%% | function        | --NA--     |
 %%% | user_data       | --NA--     |
 %%% | thread.         | --NA--     |
@@ -99,6 +101,8 @@ pushterm(L, Arg) when is_boolean(Arg)   -> lua:pushboolean(L, Arg);
 pushterm(L, Arg) when is_atom(Arg)      -> lua:pushlstring(L, a2b(Arg));
 pushterm(L, Arg) when is_binary(Arg)    -> lua:pushlstring(L, Arg);
 pushterm(L, Arg) when is_number(Arg)    -> lua:pushnumber(L, Arg);
+pushterm(L, Map) when is_map(Map) ->
+  pushterm(L, maps:to_list(Map));
 pushterm(L, Args) when is_tuple(Args)   ->
     Proplist = lists:zip(lists:seq(1, size(Args)), tuple_to_list(Args)),
     pushterm(L, Proplist);
@@ -148,7 +152,16 @@ toterm(L, N) ->
             end;
         table ->
             F = fun(K, V, Acc) -> [{K, V}|Acc] end,
-            lists:reverse(fold(F, [], L, N))
+            List = lists:reverse(fold(F, [], L, N)),
+            FInt = fun({K, _}) -> is_integer(K) end,
+            case lists:all(FInt, List) of
+              true ->
+                GetValue = fun({_, V}, Acc) -> [V|Acc] end,
+                lists:foldl(GetValue, [], List);
+              false ->
+                PutMap = fun({K, V}, Map) -> maps:put(K, V, Map) end,
+                lists:foldl(PutMap, maps:new(), List)
+            end
     end.
 
 %% @doc Call Fun over table on absolute index N. [-0, +0].
