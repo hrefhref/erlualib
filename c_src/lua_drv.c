@@ -41,6 +41,29 @@ DRIVER_INIT(lua_driver) {
   return &lua_driver_entry;
 }
 
+static void erl_lua_preempt_hook(lua_State *L, lua_Debug *ar) {
+  luaL_dostring(L, "preempt()");
+
+  lua_getglobal(L, "preempt_exhausted");
+  int exhausted = lua_tointeger(L, -1);
+
+  if (exhausted > 0) {
+    lua_yield(L, 0);
+  }
+}
+
+int preempt(lua_State *L)
+{
+  lua_getglobal(L, "erl_state");
+  lua_erl_state_t* luastate = (lua_erl_state_t*) lua_touserdata(L, -1);
+
+  int exhausted = erl_drv_consume_timeslice(luastate->port, 2);
+  lua_pushinteger(L, exhausted);
+  lua_setglobal(L, "preempt_exhausted");
+
+  return 0;
+}
+
 static ErlDrvData
 start(ErlDrvPort port, char *cmd)
 {
@@ -48,12 +71,32 @@ start(ErlDrvPort port, char *cmd)
   L = luaL_newstate();
   luaL_openlibs(L);
 
+  lua_register(L, "preempt", preempt);
+
   luaopen_liberlang(L);
+
+  // Hook preempt()
+  lua_sethook(L, erl_lua_preempt_hook, LUA_MASKCOUNT, 10);
+
+
+  ErlDrvTermData drvport = driver_mk_port(port);
+  ErlDrvTermData owner = driver_connected(port);
+
+  lua_erl_state_t* luastate = (lua_erl_state_t*) driver_alloc(sizeof(lua_erl_state_t));
+  luastate->port = port;
+  luastate->drvport = drvport;
+  luastate->owner = owner;
+
+  // Push a reference to lua_state back in a global LUA variable
+  lua_pushlightuserdata(L, luastate);
+  lua_setglobal(L, "erl_state");
 
   lua_drv_t* retval = (lua_drv_t*) driver_alloc(sizeof(lua_drv_t));
   retval->port = port;
-  retval->drvport = driver_mk_port(port);
+  retval->drvport = drvport;
+  retval->owner = owner;
   retval->L = L;
+  retval->state = luastate;
 
   return (ErlDrvData) retval;
 }
@@ -63,6 +106,7 @@ stop(ErlDrvData handle)
 {
   lua_drv_t* driver_data = (lua_drv_t*) handle;
   lua_close(driver_data->L);
+  driver_free(driver_data->state);
   driver_free(driver_data);
 }
 
@@ -165,6 +209,11 @@ process(ErlDrvData handle, ErlIOVec *ev)
   case ERL_LUAM_MULTIPCALL:
     erl_luam_multipcall(driver_data, buf, index);
     break;
+
+  case ERL_LUAM_MULTIRESUME:
+    erl_luam_multiresume(driver_data, buf, index);
+    break;
+
   case ERL_LUAM_MAYBE_ATOM:
     erl_luam_maybe_atom(driver_data, buf, index);
     break;

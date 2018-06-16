@@ -10,6 +10,7 @@ command(#lua{port=Port}, Data) ->
 receive_valued_response() ->
     receive
         lua_ok -> ok;
+        {lua_ok, lua_yielded} -> yielded;
         {lua_ok, Str} -> Str;
         {lua_throw, Throw} -> throw(Throw)
 %        Other -> throw({unknown_return, Other})

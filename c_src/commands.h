@@ -140,6 +140,7 @@
 
 #define ERL_LUAM_MULTIPCALL        200
 #define ERL_LUAM_MAYBE_ATOM        201
+#define ERL_LUAM_MULTIRESUME       202
 
 #define ATOM_OK driver_mk_atom("lua_ok")
 #define ATOM_THROW driver_mk_atom("lua_throw")

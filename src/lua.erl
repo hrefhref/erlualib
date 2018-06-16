@@ -26,6 +26,7 @@
          tolstring/2,
          tonumber/2,
          settable/2,
+         settop/2,
          type/2]).
 
 
@@ -190,6 +191,11 @@ tonumber(L, Index) ->
 -spec settable(lua(), index()) -> ok.
 settable(L, Index) ->
     lua_common:command(L, {?ERL_LUA_SETTABLE, Index}),
+    lua_common:receive_valued_response().
+
+-spec settop(lua(), index()) -> ok.
+settop(L, Index) ->
+    lua_common:command(L, {?ERL_LUA_SETTOP, Index}),
     lua_common:receive_valued_response().
 
 -spec type(lua(), index()) -> lua_type().

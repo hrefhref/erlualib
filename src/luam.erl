@@ -4,19 +4,23 @@
 %%%
 %%% ## Erlang->Lua type conversion table
 %%%     >-------->------>
-%%% +------------+----------------+
-%%% | Erlang     |      Lua       |
-%%% +------------+----------------+
-%%% | 'nil'      | nil
-%%% | boolean    | boolean        |
-%%% | binary     | string         |
-%%% | atom       | string         |
-%%% | string     | string         |
-%%% | number     | number         |
-%%% | proplist   | tagged table   |
-%%% | map        | tagged table   |
-%%% | tuple      | indexed table  |
-%%% +------------+----------------+
+%%% +------------+-----------------+
+%%% | Erlang     |       Lua       |
+%%% +------------+-----------------+
+%%% | 'nil'      | nil             |
+%%% | boolean    | boolean         |
+%%% | binary     | string          |
+%%% | atom       | string          |
+%%% | string     | string          |
+%%% | number     | number          |
+%%% | proplist   | tagged table    |
+%%% | map        | tagged table    |
+%%% | tuple      | indexed table   |
+%%% | refs       | indexed table   |
+%%% |   pid      | {erlang_pid=}   |
+%%% |   ref      | {erlang_ref=}   |
+%%% |   port     | {erlang_port=}  |
+%%% +------------+-----------------+
 %%%
 %%% Whereas >--------->----->
 %%% +-----------------+------------+
@@ -29,6 +33,9 @@
 %%% | string          | binary     |
 %%% | indexed table   | list       |
 %%% | tagged table    | map        |
+%%% | {erlang_pid=}   | pid        |
+%%% | {erlang_ref=}   | ref        |
+%%% | {erlang_port=}  | port       |
 %%% | function        | --NA--     |
 %%% | user_data       | --NA--     |
 %%% | thread.         | --NA--     |
@@ -46,7 +53,7 @@
 -include("lua_api.hrl").
 -include_lib("kernel/include/file.hrl").
 
--export([one_call/3, call/3, multipcall/2, maybe_atom/2, pushterm/2]).
+-export([one_call/3, call/3, multipcall/2, multiresume/2, maybe_atom/2, pushterm/2]).
 -export([fold/4]).
 
 
@@ -55,9 +62,18 @@
 call(L, FunName, Args) ->
     lua:getglobal(L, FunName),
     [pushterm(L, Arg) || Arg <- Args],
-    N = multipcall(L, length(Args)),
-    lua:gettop(L),
-    pop_results(L, N).
+    process_call(L, length(Args)).
+
+%% @doc Resume a function call. Automatically called by call/3.
+process_call(L) -> process_call(L, 0).
+
+process_call(L, ArgLen) ->
+  case multiresume(L, ArgLen) of
+    yielded -> process_call(L);
+    N ->
+      lua:gettop(L),
+      pop_results(L, N-1)
+  end.
 
 %% @doc Call a function once. Initializes Lua, does luam:call, closes Lua
 %%
@@ -93,9 +109,12 @@ one_call(File, FunName, Args) ->
 
 %% @doc Push arbitrary variable on stack
 -spec pushterm(lua:lua(), lua:arg())    -> ok.
-pushterm(L, Arg) when is_pid(Arg)       -> lua:pushnil(L); % TODO: UNSUPPORTED
-pushterm(L, Arg) when is_reference(Arg) -> lua:pushnil(L); % TODO: UNSUPPORTED
-pushterm(L, Arg) when is_port(Arg)      -> lua:pushnil(L); % TODO: UNSUPPORTED
+pushterm(L, Arg) when is_pid(Arg)       ->
+  pushterm(L, [{erlang_pid, pid_to_list(Arg)}]);
+pushterm(L, Arg) when is_reference(Arg) ->
+  pushterm(L, [{erlang_ref, ref_to_list(Arg)}]);
+pushterm(L, Arg) when is_port(Arg)      ->
+  pushterm(L, [{erlang_port, port_to_list(Arg)}]);
 pushterm(L, nil)                        -> lua:pushnil(L);
 pushterm(L, Arg) when is_boolean(Arg)   -> lua:pushboolean(L, Arg);
 pushterm(L, Arg) when is_atom(Arg)      -> lua:pushlstring(L, a2b(Arg));
@@ -148,19 +167,28 @@ toterm(L, N) ->
         user_data ->
             case maybe_atom(L, N) of
                 {lua_ok, Atom} -> Atom;
-                _ -> erlang:error(badarg)
+                Bad ->
+                  io:format("BAD ARG: ~p", [Bad]),
+                  %erlang:error(badarg)
+                  Bad
             end;
         table ->
             F = fun(K, V, Acc) -> [{K, V}|Acc] end,
             List = lists:reverse(fold(F, [], L, N)),
             FInt = fun({K, _}) -> is_integer(K) end,
-            case lists:all(FInt, List) of
-              true ->
-                GetValue = fun({_, V}, Acc) -> [V|Acc] end,
-                lists:foldl(GetValue, [], List);
-              false ->
-                PutMap = fun({K, V}, Map) -> maps:put(K, V, Map) end,
-                lists:foldl(PutMap, maps:new(), List)
+            case List of
+              [{<<"erlang_pid">>, LPid}] -> list_to_pid(LPid);
+              [{<<"erlang_port">>, LPort}] -> list_to_port(LPort);
+              [{<<"erlang_ref">>, LRef}] -> list_to_ref(LRef);
+              List ->
+                case lists:all(FInt, List) of
+                  true ->
+                    GetValue = fun({_, V}, Acc) -> [V|Acc] end,
+                    lists:foldl(GetValue, [], List);
+                  false ->
+                    PutMap = fun({K, V}, Map) -> maps:put(K, V, Map) end,
+                    lists:foldl(PutMap, maps:new(), List)
+                end
             end
     end.
 
@@ -189,6 +217,12 @@ fold( Fun, Acc, L,   N, _) ->
 -spec multipcall(lua:lua(), non_neg_integer()) -> non_neg_integer().
 multipcall(L, N) ->
     lua_common:command(L, {?ERL_LUAM_MULTIPCALL, N}),
+    lua_common:receive_valued_response().
+
+%% @doc Resume function.
+-spec multiresume(lua:lua(), non_neg_integer()) -> non_neg_integer().
+multiresume(L, N) ->
+    lua_common:command(L, {?ERL_LUAM_MULTIRESUME, N}),
     lua_common:receive_valued_response().
 
 -spec a2b(atom()) -> binary().

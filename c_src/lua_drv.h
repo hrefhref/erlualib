@@ -1,7 +1,15 @@
+typedef struct _lua_erl_state_t {
+  ErlDrvPort port;
+  ErlDrvTermData drvport;
+  ErlDrvTermData owner;
+} lua_erl_state_t;
+
 typedef struct _lua_drv_t {
   ErlDrvPort port;
   ErlDrvTermData drvport;
+  ErlDrvTermData owner;
   lua_State *L;
+  lua_erl_state_t *state;
 } lua_drv_t;
 
 
@@ -44,6 +52,7 @@ extern "C" {
   void erl_lual_dostring (lua_drv_t *driver_data, char *buf, int index);
 
   void erl_luam_multipcall (lua_drv_t *driver_data, char *buf, int index);
+  void erl_luam_multiresume (lua_drv_t *driver_data, char *buf, int index);
   void erl_luam_maybe_atom (lua_drv_t *driver_data, char *buf, int index);
 
   void erl_lua_no_command (lua_drv_t *driver_data);

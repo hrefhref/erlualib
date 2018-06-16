@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <erl_driver.h>
 #include <ei.h>
+#include "luajit.h"
 #include <lua.h>
 #include <lauxlib.h>
 #include <string.h>
@@ -152,6 +153,18 @@ erl_lua_gettop(lua_drv_t *driver_data, char *buf, int index)
         ERL_DRV_TUPLE,  2
   };
   erl_drv_output_term(driver_data->drvport, spec, sizeof(spec) / sizeof(spec[0]));
+}
+
+void
+erl_lua_settop(lua_drv_t *driver_data, char *buf, int index)
+{
+    long long i;
+
+    ei_decode_longlong(buf, &index, &i);
+
+    lua_settop(driver_data->L, i);
+
+    reply_ok(driver_data);
 }
 
 void
@@ -412,6 +425,47 @@ erl_lual_dostring(lua_drv_t *driver_data, char *buf, int index)
     reply_throw(driver_data, lua_tostring(driver_data->L, -1));
   free(code);
 }
+
+void
+erl_luam_multiresume(lua_drv_t *driver_data, char *buf, int index)
+{
+  long args, level, ret_results;
+  ei_decode_long(buf, &index, &args);
+
+  /* level := function's index - 1 */
+  level = lua_gettop(driver_data->L) - args - 1;
+
+  int res = lua_resume(driver_data->L, args);
+
+  if (res == 0) { // # LUA_MULTRET, 0) == 0) {
+      ret_results = lua_gettop(driver_data->L) - level;
+
+      ErlDrvTermData spec[] = {
+          ERL_DRV_ATOM,   ATOM_OK,
+          ERL_DRV_INT, (ErlDrvTermData) ret_results,
+          ERL_DRV_TUPLE,  2
+      };
+      erl_drv_output_term(driver_data->drvport,spec,sizeof(spec)/sizeof(spec[0]));
+  } else if (res == LUA_YIELD) {
+    ErlDrvTermData spec[] = {
+      ERL_DRV_ATOM, ATOM_OK,
+      ERL_DRV_ATOM, driver_mk_atom("yielded"),
+      ERL_DRV_TUPLE, 2
+    };
+    erl_drv_output_term(driver_data->drvport,spec,sizeof(spec)/sizeof(spec[0]));
+  } else {
+      const char *err = lua_tostring(driver_data->L, -1);
+      ErlDrvTermData spec[] = {
+          ERL_DRV_ATOM,   ATOM_THROW,
+            ERL_DRV_ATOM, driver_mk_atom("lua_error"),
+            ERL_DRV_STRING, (ErlDrvTermData) err, strlen(err),
+            ERL_DRV_TUPLE,  2,
+          ERL_DRV_TUPLE,  2
+      };
+      erl_drv_output_term(driver_data->drvport,spec,sizeof(spec)/sizeof(spec[0]));
+  }
+}
+
 
 void
 erl_luam_multipcall(lua_drv_t *driver_data, char *buf, int index)
